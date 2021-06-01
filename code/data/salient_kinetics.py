@@ -82,8 +82,8 @@ class SalientKinetics400(Kinetics400):
             img = img[:2, :, :].permute(1, 2, 0)
 
         # TODO: check if this code can be removed
-        if torch.max(img) < 2 and self.saliency_channels != 2:
-            img *= 255
+        # if torch.max(img) < 2 and self.saliency_channels != 2:
+        #     img *= 255
         return img.squeeze()
 
     def generate_saliency_clip(self, clip: Tensor) -> Tensor:
