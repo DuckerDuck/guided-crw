@@ -39,5 +39,9 @@ def test_dataloader():
     video_reference = torch.load('tests/video_sample.pth')
     saliency_reference = torch.load('tests/saliency_sample.pth')
 
+    
+    assert saliency.min() == saliency.max()
+    assert saliency_reference.min() == saliency_reference.max()
+
     assert torch.isclose(video, video_reference).all()
     assert torch.isclose(saliency, saliency_reference).all()
