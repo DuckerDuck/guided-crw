@@ -99,9 +99,7 @@ class SalientKinetics400(Kinetics400):
 
         distance -= distance.min()
         distance /= distance.max()
-        distance = (1 - distance) * 255
-        distance = distance.byte()
-
+        distance = 1 - distance
         return torch.stack(T * [distance])
 
     def scale_saliency(self, shape: torch.Size, saliency: torch.Tensor):
