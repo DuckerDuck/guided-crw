@@ -102,11 +102,16 @@ def main(args):
     print("Preparing training dataloader")
     traindir = os.path.join(args.data_path, 'train_256' if not args.fast_test else 'val_256')
     valdir = os.path.join(args.data_path, 'val_256')
-    if args.prior_dataset:
-        priordir = Path('./saliency_cache_' + args.prior_dataset)
-        print('PRIOR DATASET: ', priordir)
-    else:
-        priordir = None
+
+    priordirs = []
+    for prior in args.prior_dataset:
+        if prior is not None:
+            priordirs.append(Path('./saliency_cache_' + prior))
+        else:
+            priordirs.append(None)
+        print('PRIOR DATASET(S): ', priordirs)
+    if args.prior_dataset == None and len(priordirs) == 0:
+        priordirs = [None]
 
     st = time.time()
     if args.cache_dataset:
@@ -126,7 +131,7 @@ def main(args):
             if args.with_guiding:
                 return SalientKinetics400(
                     traindir if is_train else valdir,
-                    priordir,
+                    priordirs,
                     frames_per_clip=args.clip_len,
                     step_between_clips=1,
                     transform=transform_train,

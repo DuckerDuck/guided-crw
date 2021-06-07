@@ -29,7 +29,7 @@ class SalientKinetics400(Kinetics400):
         label (int): class of the video clip
     """
 
-    def __init__(self, root, prior_root: Optional[str], frames_per_clip, step_between_clips=1, frame_rate=None,
+    def __init__(self, root, prior_roots: List[Optional[str]], frames_per_clip, step_between_clips=1, frame_rate=None,
                  extensions=('mp4',), transform=None, salient_transform=None, 
                  cached=None, _precomputed_metadata=None, frame_offset=0, saliency_channels=1):
         super(SalientKinetics400, self).__init__(root, frames_per_clip, 
@@ -44,13 +44,16 @@ class SalientKinetics400(Kinetics400):
 
         # Saliency maps are grayscale (1 channel) and optical flow contains Fx and Fy  (2 channels)
         self.saliency_channels = saliency_channels
+        self.prior_roots = []
         
-        if prior_root is None:
-            self.prior_root = None
-        else:
-            self.prior_root = Path(prior_root)
-            if not self.prior_root.is_dir():
-                raise FileNotFoundError(f'Could not find saliency data at {self.prior_root}')
+        for prior in prior_roots:
+            if prior is None:
+                self.prior_roots.append(None)
+            else:
+                path = Path(prior)
+                self.prior_roots.append(path)
+                if not path.is_dir():
+                    raise FileNotFoundError(f'Could not find saliency data at {path}')
 
     def clip_idx_to_frame(self, clip_location: Tuple[int, int]) -> List:
         video_idx, clip_idx = clip_location
@@ -86,9 +89,9 @@ class SalientKinetics400(Kinetics400):
         #     img *= 255
         return img.squeeze()
 
-    def generate_saliency_clip(self, clip: Tensor) -> Tensor:
+    def generate_saliency_clip(self, shape: torch.Size) -> Tensor:
         """ Used to generate simple saliency maps """
-        T, W, H, C = clip.shape
+        T, W, H, C = shape
         frame = torch.cartesian_prod(torch.arange(W), torch.arange(H))
         frame = frame.reshape(W, H, 2).float()
         center = torch.tensor([W/2, H/2]).unsqueeze(0)
@@ -101,8 +104,28 @@ class SalientKinetics400(Kinetics400):
 
         return torch.stack(T * [distance])
 
+    def scale_saliency(self, shape: torch.Size, saliency: torch.Tensor):
+        # Scale saliency to size of video if they are not the same
+        if saliency.shape[-2:] != shape[1:3]:
+            # HACK: I accidentally transposed one dataset partially which 
+            # does not need interpolation but it does need transposing
+            vid_size = torch.tensor(shape[1:3]) 
+            sal_size = torch.tensor(saliency.shape[-2:])
 
-    def get_saliency_clip(self, clip_location: Tuple[int, int]) -> Tensor:
+            if (vid_size == torch.flip(sal_size, [0])).all():
+                saliency = saliency.permute(0, 2, 1)
+            else:
+                correct_size = (shape[1], shape[2])
+                
+                # Interpolate needs the channel dimension
+                if len(saliency.shape) <= 3:
+                    saliency = saliency.unsqueeze(1)
+                saliency = torch.nn.functional.interpolate(saliency, size=correct_size)
+                saliency = saliency.squeeze()
+        return saliency
+
+
+    def get_saliency_clip(self, clip_location: Tuple[int, int], shape) -> Tensor:
         """
         Get (precomputed) saliency clip
         """
@@ -116,25 +139,36 @@ class SalientKinetics400(Kinetics400):
         subfolders = video_path.relative_to(Path(self.root).parent).parent
         
         frames = self.clip_idx_to_frame(clip_location)
-        cached_folder = self.prior_root / subfolders / video_name
-        
-        saliencies = []
-        for frame in frames:
-            cached_file = cached_folder / f'{frame + self.frame_offset}.jpg'
-            
-            if self.saliency_channels == 2:
-                cached_file = cached_file.with_suffix('.flo')
+        priors = []
+        for prior in self.prior_roots:
+            if prior is not None:
+                saliencies = []
+                for frame in frames:
+                    cached_folder = prior / subfolders / video_name
+                    cached_file = cached_folder / f'{frame + self.frame_offset}.jpg'
+                    
+                    if self.saliency_channels == 2:
+                        cached_file = cached_file.with_suffix('.flo')
 
-            if cached_file.is_file():
-                if self.saliency_channels == 2:
-                    saliency_frame = self.load_optical_flow_frame(cached_file)
-                else:
-                    saliency_frame = self.load_frame(cached_file)
+                    if cached_file.is_file():
+                        if self.saliency_channels == 2:
+                            saliency_frame = self.load_optical_flow_frame(cached_file)
+                        else:
+                            saliency_frame = self.load_frame(cached_file)
+                    else:
+                        raise FileNotFoundError(f'Could not load frame {cached_file} from video {video_idx}.')
+                    saliencies.append(saliency_frame)
+                saliency = torch.stack(saliencies)
+                saliency = self.scale_saliency(shape, saliency)
             else:
-                raise Exception(f'Could not load frame {cached_file} from video {video_idx}.')
+                saliency = self.generate_saliency_clip(shape)
+            priors.append(saliency)
+        
+        if len(priors) > 1:
+            # TODO: Mean or Max?
+            return torch.mean(torch.stack(priors), dim=0)
 
-            saliencies.append(saliency_frame)
-        return torch.stack(saliencies)
+        return priors[0]
 
 
     def __getitem__(self, idx):
@@ -145,10 +179,7 @@ class SalientKinetics400(Kinetics400):
 
                 # This information is needed for saliency caching
                 clip_location = self.video_clips.get_clip_location(idx)
-                if self.prior_root is None:
-                    saliency = self.generate_saliency_clip(video)
-                else:
-                    saliency = self.get_saliency_clip(clip_location)
+                saliency = self.get_saliency_clip(clip_location, video.shape)
                 
                 success = True
             except Exception as e:
@@ -157,25 +188,6 @@ class SalientKinetics400(Kinetics400):
         
         # saliency = self.get_saliency_clip(video, clip_location)
         label = self.samples[video_idx][1]
-
-        # Scale saliency to size of video if they are not the same
-        if saliency.shape[-2:] != video.shape[1:3]:
-            # HACK: I accidentally transposed one dataset partially which 
-            # does not need interpolation but it does need transposing
-            vid_size = torch.tensor(video.shape[1:3]) 
-            sal_size = torch.tensor(saliency.shape[-2:])
-
-            if (vid_size == torch.flip(sal_size, [0])).all():
-                saliency = saliency.permute(0, 2, 1)
-            else:
-                video_path = self.video_clips.metadata['video_paths'][video_idx]
-                correct_size = (video.shape[1], video.shape[2])
-                
-                # Interpolate needs the channel dimension
-                if len(saliency.shape) <= 3:
-                    saliency = saliency.unsqueeze(1)
-                saliency = torch.nn.functional.interpolate(saliency, size=correct_size)
-                saliency = saliency.squeeze()
 
         # The random state is kept constant for the two transforms, this
         # makes sure RandomResizedCrop is applied the same way in both 
