@@ -6,9 +6,15 @@ import os
 import cv2
 
 import scipy.io as sio
+import argparse
 
-filelist = '/scratch/ajabri/data/jhmdb/test.split.v2.txt'
-src_folder = '/tmp/jhmdb/'
+
+parser = argparse.ArgumentParser(description='Evaluate PCK')
+parser.add_argument('src_folder', help='Path to output of test.py')
+args = parser.parse_args()
+
+filelist = 'eval/jhmdb_vallist.txt'
+src_folder = args.src_folder
 
 f = open(filelist, 'r')
 gts = []

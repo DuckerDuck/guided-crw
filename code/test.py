@@ -158,7 +158,7 @@ def test(loader, model, args):
                 if 'jhmdb' in args.filelist.lower():
                     coords, pred_sharp = test_utils.process_pose(pred, lbl_map)
                     keypts.append(coords)
-                    pose_map = utils.vis_pose(np.array(cur_img).copy(), coords.numpy() * args.mapScale[..., None])
+                    pose_map = test_utils.vis_pose(np.array(cur_img).copy(), coords.numpy() * args.mapScale[..., None])
                     _maps += [pose_map]
 
                 if 'VIP' in args.filelist:
