@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Tuple, List
 from saliency.flow.optflow import flow_read
 from typing import Tuple, List, Optional
+from generate_saliency import method_index
 
 import numpy as np
 
@@ -31,7 +32,7 @@ class SalientKinetics400(Kinetics400):
 
     def __init__(self, root, prior_roots: List[Optional[str]], frames_per_clip, step_between_clips=1, frame_rate=None,
                  extensions=('mp4',), transform=None, salient_transform=None, 
-                 cached=None, _precomputed_metadata=None, frame_offset=0, saliency_channels=1):
+                 cached=None, _precomputed_metadata=None):
         super(SalientKinetics400, self).__init__(root, frames_per_clip, 
                                                 step_between_clips=step_between_clips,
                                                 frame_rate=frame_rate, extensions=extensions, 
@@ -39,11 +40,6 @@ class SalientKinetics400(Kinetics400):
                                                 _precomputed_metadata=_precomputed_metadata)
 
         self.salient_transform = salient_transform
-        # Frame offset can be used if a saliency method uses 1-indexing
-        self.frame_offset = frame_offset
-
-        # Saliency maps are grayscale (1 channel) and optical flow contains Fx and Fy  (2 channels)
-        self.saliency_channels = saliency_channels
         self.prior_roots = []
         
         for prior in prior_roots:
@@ -71,22 +67,20 @@ class SalientKinetics400(Kinetics400):
         return to_tensor(flow)
 
     def load_frame(self, path: Path) -> Tensor:
+        channels = self.get_number_of_channels(path)
         with open(str(path), 'rb') as f:
             img = Image.open(f)
-            if self.saliency_channels == 1:
+            if channels == 1:
                 img = img.convert('L')
-            elif self.saliency_channels == 2:
+            elif channels == 2:
                 img = img.convert('RGB')
 
         img = to_tensor(img)
 
-        if self.saliency_channels == 2:
+        if channels == 2:
             # Discard B channel, img shape: (h, w, 2)
             img = img[:2, :, :].permute(1, 2, 0)
 
-        # TODO: check if this code can be removed
-        # if torch.max(img) < 2 and self.saliency_channels != 2:
-        #     img *= 255
         return img.squeeze()
 
     def generate_saliency_clip(self, shape: torch.Size) -> Tensor:
@@ -122,6 +116,16 @@ class SalientKinetics400(Kinetics400):
                 saliency = saliency.squeeze()
         return saliency
 
+    def get_frame_offset(self, prior):
+        for key, (_, one_indexed) in method_index.items():
+            if key in str(prior):
+                return int(one_indexed)
+        raise Exception('Could not infer frame offset')
+
+    def get_number_of_channels(self, prior):
+        if 'flow' in str(prior):
+            return 2
+        return 1
 
     def get_saliency_clip(self, clip_location: Tuple[int, int], shape) -> Tensor:
         """
@@ -143,13 +147,14 @@ class SalientKinetics400(Kinetics400):
                 saliencies = []
                 for frame in frames:
                     cached_folder = prior / subfolders / video_name
-                    cached_file = cached_folder / f'{frame + self.frame_offset}.jpg'
+                    offset = self.get_frame_offset(prior)
+                    cached_file = cached_folder / f'{frame + offset}.jpg'
                     
-                    if self.saliency_channels == 2:
+                    if self.get_number_of_channels(prior) == 2:
                         cached_file = cached_file.with_suffix('.flo')
 
                     if cached_file.is_file():
-                        if self.saliency_channels == 2:
+                        if self.get_number_of_channels(prior) == 2:
                             saliency_frame = self.load_optical_flow_frame(cached_file)
                         else:
                             saliency_frame = self.load_frame(cached_file)
