@@ -188,6 +188,9 @@ class SCRW(nn.Module):
 
         return feats, maps
 
+    def is_optical_flow(self):
+        return len(self.prior) == 1 and self.prior[0] == 'flow'
+
     def forward(self, x, s, just_feats=False,):
         '''
         Input is B x T x N*C x H x W, where either
@@ -202,7 +205,7 @@ class SCRW(nn.Module):
         SC = 1
 
         # If using optical flow, saliency maps contain two channels (fx, fy)
-        if self.prior == 'flow':
+        if self.is_optical_flow():
             _, _, SN, _, _ = s.shape
             SC = 2
             SN = SN // SC
@@ -226,7 +229,7 @@ class SCRW(nn.Module):
         #################################################################
         walks = dict()
         As = self.affinity(q[:, :, :-1], q[:, :, 1:])
-        if self.prior == 'flow':
+        if self.is_optical_flow():
             saliency_A = self.affinity_optical_flow(saliency_q)
         else:
             saliency_A = self.affinity(saliency_q[:, :, :-1], saliency_q[:, :, 1:])
@@ -280,7 +283,7 @@ class SCRW(nn.Module):
                 self.visualize_frame_pair(x, q, mm, 'reg')
                 #utils.visualize.vis_affinity(x, A12s, vis=self.vis.vis, title='Affinity', caption='Affinity', vis_win='Regular affinity')
                 bg_to_affinity = s
-                if self.prior == 'flow':
+                if self.is_optical_flow():
                     bg_to_affinity = x
                     #utils.visualize.vis_flow(x, s, title='flow', vis_win='optical flow', vis=self.vis.vis)
 

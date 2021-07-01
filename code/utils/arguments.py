@@ -86,7 +86,8 @@ def train_args():
         help='Method of guiding the random walk, or, how to apply our priors to existing affinity.')
     parser.add_argument('--prior-dataset', default='mbs', nargs='+',
         help='Dataset(s) of priors, if multiply given the values are meaned over all, location of data should be in "saliency_cache_PRIORNAME".')
-    parser.add_argument('--prior-frame-index', default=0, type=int, help='Dataset of our priors are zero or one indexed.')
+    # TODO: clean up this argument
+    parser.add_argument('--prior-frame-index', default=0, type=int, help='DEPRECATED: DOES NOTHING')
     parser.add_argument('--device', default='cuda', help='device')
     parser.add_argument('--clip-len', default=8, type=int, metavar='N',
                         help='number of frames per clip')
@@ -177,6 +178,9 @@ def train_args():
 
     priors = []
     for prior in args.prior_dataset:
+        if prior.lower() == 'flow' and len(args.prior_dataset) > 1:
+            raise Exception('Cannot combine optical flow with other methods')
+
         if prior.lower() == 'none':
             priors.append(None)
         else:
