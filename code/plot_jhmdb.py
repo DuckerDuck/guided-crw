@@ -3,6 +3,7 @@ import numpy as np
 from utils.test_utils import vis_pose
 from pathlib import Path
 from data.jhmdb import load_image
+import cv2
 
 from PIL import Image
 
@@ -17,6 +18,17 @@ def read_vallist(args):
         imgs, vids = line.split(' ')
         result.append((imgs, vids))
     return result
+
+
+def resize_img(img, args):
+    ht, wd = img.shape[1], img.shape[2]
+    if args.imgsize > 0:
+        ratio  = 1.0 
+        if ht <= wd:
+            img = cv2.resize( img, (int(args.imgsize * ratio), args.imgsize))
+        else:
+            img = cv2.resize( img, (args.imgsize, int(args.imgsize * ratio)))
+    return img
 
 
 def main(args):
@@ -51,6 +63,7 @@ def main(args):
             
             coords = predres[:, :, f].squeeze()
             img = load_image(str(img_path)).permute(1,2,0).numpy() * 255
+            img = resize_img(img, args)
             pose_map = vis_pose(img, coords * map_scale[..., None])
 
             pose_map = pose_map.astype(np.uint8)
@@ -64,6 +77,7 @@ if __name__ == '__main__':
     parser.add_argument('joints', help='Path to .dat file containing joint coordinates')
     parser.add_argument('vallist', help='JHMDB vallist')
     parser.add_argument('--output', default='./JHMDB_visualized/', help='Path to plot folder')
+    parser.add_argument('--imgsize', default=320, help='Same as cropSize in test.py')
     
     args = parser.parse_args()
     print(args)
